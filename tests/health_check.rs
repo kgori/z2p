@@ -10,7 +10,11 @@ async fn health_check_works() {
         .expect("Failed to send request");
 
     assert!(response.status().is_success(), "Health check failed");
-    assert_eq!(Some(0), response.content_length(), "Content length should be 0");
+    assert_eq!(
+        Some(0),
+        response.content_length(),
+        "Content length should be 0"
+    );
 }
 
 fn spawn_app() {
