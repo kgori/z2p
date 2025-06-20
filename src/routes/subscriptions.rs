@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse};
+use actix_web::{HttpResponse, web};
 
 #[allow(dead_code)]
 #[derive(serde::Deserialize)]
