@@ -32,8 +32,8 @@ jobs:
 
       - name: Install the sqlx CLI
         run: cargo install sqlx-cli
-          --version=${{ env:SQLX_VERSION }}
-          --features=${{ env:SQLX_FEATURES }}
+          --version=${{ env.SQLX_VERSION }}
+          --features=${{ env.SQLX_FEATURES }}
           --no-default-features
           --locked
           
