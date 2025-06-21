@@ -82,7 +82,7 @@ jobs:
       - name: Linting
         run: cargo clippy -- -D warnings
 
-coverage:
+  coverage:
     name: Code coverage
     runs-on: ubuntu-latest
     services:
