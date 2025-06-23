@@ -63,4 +63,3 @@ DATABASE_URL="postgres://${APP_USER}:${APP_USER_PWD}@localhost:${DB_PORT}/${APP_
 export DATABASE_URL
 sqlx database create
 sqlx migrate run
-cargo sqlx prepare
