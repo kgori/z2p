@@ -1,5 +1,6 @@
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
+use std::time::Duration;
 use uuid::Uuid;
 use zero2prod::configuration::{DatabaseSettings, get_configuration};
 use zero2prod::startup::run;
@@ -7,11 +8,59 @@ use zero2prod::startup::run;
 pub struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
+    db_name: String,
+    config: DatabaseSettings,
+}
+
+impl TestApp {
+    pub async fn new() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
+        let port = listener.local_addr().unwrap().port();
+        let address = format!("http://127.0.0.1:{port}");
+
+        let mut config = get_configuration().expect("Failed to read configuration");
+        let db_name = Uuid::new_v4().to_string();
+        config.database.database_name = db_name.clone();
+
+        let connection_pool = configure_database(&config.database).await;
+
+        let server = run(listener, connection_pool.clone()).expect("Failed to bind address");
+
+        let _ = tokio::spawn(server);
+
+        TestApp {
+            address,
+            db_pool: connection_pool,
+            db_name,
+            config: config.database.clone(),
+        }
+    }
+
+    async fn cleanup(self) {
+        drop(self.db_pool);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut conn = PgConnection::connect(&self.config.connection_string_without_db())
+            .await
+            .expect("Cleanup conn failed");
+
+        let _ = conn
+            .execute(
+                format!(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}';",
+                    self.db_name
+                )
+                .as_str(),
+            )
+            .await;
+        let _ = conn
+            .execute(format!("DROP DATABASE IF EXISTS \"{}\"", self.db_name).as_str())
+            .await;
+    }
 }
 
 #[tokio::test]
 async fn health_check_works() {
-    let app = spawn_app().await;
+    let app = TestApp::new().await;
     let client = reqwest::Client::new();
     let route = format!("{}/health_check", &app.address);
 
@@ -23,25 +72,7 @@ async fn health_check_works() {
 
     assert!(response.status().is_success(), "Health check failed");
     assert_eq!(Some(0), response.content_length());
-}
-
-async fn spawn_app() -> TestApp {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
-    let port = listener.local_addr().unwrap().port();
-    let address = format!("http://127.0.0.1:{port}");
-
-    let mut configuration = get_configuration().expect("Failed to read configuration");
-    configuration.database.database_name = Uuid::new_v4().to_string();
-
-    let connection_pool = configure_database(&configuration.database).await;
-
-    let server = run(listener, connection_pool.clone()).expect("Failed to bind address");
-    let _ = tokio::spawn(server);
-
-    TestApp {
-        address,
-        db_pool: connection_pool,
-    }
+    app.cleanup().await;
 }
 
 pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
@@ -74,7 +105,7 @@ pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
 
 #[tokio::test]
 async fn subscribe_returns_200_for_valid_form_data() {
-    let app = spawn_app().await;
+    let app = TestApp::new().await;
     let client = reqwest::Client::new();
 
     let route = format!("{}/subscriptions", &app.address);
@@ -97,11 +128,12 @@ async fn subscribe_returns_200_for_valid_form_data() {
 
     assert_eq!(saved.email, "ursula_le_guin@gmail.com");
     assert_eq!(saved.name, "le guin");
+    app.cleanup().await;
 }
 
 #[tokio::test]
 async fn subscribe_returns_400_when_data_is_missing() {
-    let app = spawn_app().await;
+    let app = TestApp::new().await;
     let client = reqwest::Client::new();
 
     let test_cases = vec![
@@ -127,4 +159,6 @@ async fn subscribe_returns_400_when_data_is_missing() {
             error_message
         );
     }
+
+    app.cleanup().await;
 }
